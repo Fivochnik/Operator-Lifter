@@ -385,11 +385,16 @@ def act_is_ended(pos, platforms, objects, robot = None, objs_for_act = None) -> 
             if objects.get(n_pos, NOTHING) == NOTHING:
                 robot.x, robot.y = n_pos
                 plt = platforms.get(n_pos, ABYSS)
-                if plt == DAMAGED_BOX:
+                if plt == FRAGILE_BOX:
+                    platform[n_pos] = DAMAGED_BOX
+                elif plt == DAMAGED_BOX:
                     del platforms[n_pos]
                     robot.is_alive = False
                 elif plt in {PIT, ABYSS}:
                     robot.is_alive = False
+            else:
+                return False
+        return True
     obj = objects.get(pos, NOTHING)
     plt = platforms.get(pos, ABYSS)
     if obj in {O_S, O_B, O_F, O_D}:
@@ -492,6 +497,31 @@ def my_blit(main_surf: game.Surface, blit_surf: game.Surface, pos: tuple, rect: 
     # 5. Отрисовка на экран
     main_surf.blit(scaled_camera, (0, 0))
 
+#Функции обработки:
+def before_redraw():
+    """Выполнение программы до перерисовки."""
+    pass
+
+def after_redraw():
+    """Выполнение программы после перерисовки."""
+    pass
+
+def before_robot_step():
+    """Выполнение программы до шага робота."""
+    pass
+
+def after_robot_step():
+    """Выполнение программы после шага робота."""
+    pass
+
+def before_physics():
+    """Выполнение программы до расчётов физики."""
+    pass
+
+def after_physics():
+    """Выполнение программы после расчётов физики."""
+    pass
+
 def level_run(platforms: {(int, int): int},
               objects: {(int, int): int},
               zones: {(int, int): int},
@@ -553,6 +583,7 @@ def level_run(platforms: {(int, int): int},
     last_camera_pos = None
     follow_robot = True
     follow_koef = 0.125
+    before_robot_step_runned = False
     last_act_time = time.time()
     running = True
     while running:
@@ -629,6 +660,7 @@ def level_run(platforms: {(int, int): int},
                 REDRAW_ALL = True
         #Отображение:
         if REDRAW_ALL:
+            before_redraw()
             screen.fill((0, 0, 0))
             min_x = max_x = min_y = max_y = None
             for pos in list(platforms) + list(objects) + list(zones):
@@ -671,6 +703,7 @@ def level_run(platforms: {(int, int): int},
             my_blit(screen, layer, (min_x, min_y), camera_rect)
             game.display.flip()
             REDRAW_ALL = False
+            after_redraw()
 
         if robot.is_alive:
             if time.time() - last_act_time < PERIOD:
@@ -678,8 +711,11 @@ def level_run(platforms: {(int, int): int},
             act = get_msg(now = True)
             if act is None:
                 continue
+            if not before_robot_step_runned:
+                before_robot_step()
+            before_robot_step_runned = True
             if act == 'forward':
-                try_forward(robot, objects)
+                REDRAW_ALL = REDRAW_ALL or try_forward(robot, objects)
             elif act == 'left':
                 rotate_left(robot)
                 continue
@@ -690,11 +726,19 @@ def level_run(platforms: {(int, int): int},
                 check(robot, platforms, objects, zones)
                 continue
             elif act == 'kick':
-                try_kick(robot, objects)
+                REDRAW_ALL = REDRAW_ALL or try_kick(robot, objects)
+            elif act.startwith('debug\n'):
+                try:
+                    exec(act[7:])
+                except Exception as e:
+                    print(f'При выполнении команды в режиме отладки произошла ошибка: {e}')
             else:
                 print('Неизвестная команда "{act}".')
                 continue
-            objs_for_act = [pos for pos, obj in objects if obj not in {WALL, O_RFL, O_RFR, O_RFT, O_RFB}]
+            before_robot_step_runned = False
+            after_robot_step()
+            before_physics()
+            objs_for_act = [pos for pos, obj in objects.items() if obj not in {WALL, O_RFL, O_RFR, O_RFT, O_RFB}]
             prev = True
             while prev:
                 prev = False
@@ -703,10 +747,10 @@ def level_run(platforms: {(int, int): int},
                     pos = objs_for_act[i]
                     if act_is_ended(pos, platforms, objects, robot, objs_for_act):
                         prev = True
-                        del objs_for_act[i]
                     else:
                         i += 1
             act_is_ended(robot, platforms, objects)
+            after_physics()
             last_act_time = time.time()
     if not running:
         game.quit()
